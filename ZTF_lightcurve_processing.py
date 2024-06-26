@@ -11,8 +11,8 @@ from astropy.timeseries import TimeSeries, aggregate_downsample
 from astropy.coordinates import match_coordinates_sky as coords
 
 
-from fileIO_processing import *
-from lightcurve_processing import *
+# from fileIO_processing import *
+# from lightcurve_processing import *
 
 plt.rcParams["font.family"] = "Times New Roman"
 plt.rcParams.update({'font.size': 22})

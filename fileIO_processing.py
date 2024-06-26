@@ -7,7 +7,7 @@ from astropy.time import Time
 from astropy.timeseries import TimeSeries, aggregate_downsample
 import astropy.units as u
 
-from lightcurve_processing import nsigma_clipping, local_nsigma_clipping
+#from lightcurve_processing import nsigma_clipping, local_nsigma_clipping
 
 IMPORT_FILEPATH ='C:/Users/paiaa/Documents/Research/Blanton Lab/Midir Variables/'
 
@@ -16,7 +16,92 @@ manga_wise_hdu = manga_wise_file[1]
 mwv = manga_wise_hdu.data
 
 ##########################################################################################################
+def nsigma_clipping(ts, n):
+    """perform N-sigma clipping on timeseries to remove points that lie outside N standard deviations from the median
 
+    Parameters
+    ----------
+
+    ts : astropy.Timeseries Object
+
+    Returns
+    -------
+
+    ts : astropy.Timeseries Object
+
+    """
+    mask = ((ts['mag'] < np.nanmedian(ts['mag'])+n*np.std(ts['mag'])) & (ts['mag'] > np.nanmedian(ts['mag'])-n*np.std(ts['mag'])))
+
+    ts = ts[mask]
+
+    return ts
+
+
+
+def local_nsigma_clipping(ts, n, size=5):
+    """perform n-sigma clipping on points using the median of local values to remove points that lie outside n standard deviations from the median
+
+    Parameters
+    ----------
+
+    ts : astropy.Timeseries Object
+
+    n : np.float64
+        number of standard deviations to clip outside of
+    
+    size : np.int32
+        number of points to consider to calculate local median 
+
+    Returns
+    -------
+
+    ts_new : astropy.Timeseries Object
+
+    """
+    clipped_count = 0
+
+    time = ts['time'].to_value('decimalyear')
+    mag = ts['mag']
+    mag_err = ts['mag_err']
+
+    time_new, mag_new, mag_err_new = np.array([]), np.array([]), np.array([])
+
+    time_new = np.append(time_new, time[:size])
+    mag_new = np.append(mag_new, mag[:size])
+    mag_err_new = np.append(mag_err_new, mag_err[:size])
+    
+    for i, obs in enumerate(mag):
+        
+        if i < size or i > mag.shape[0] - size:
+            continue
+
+        
+        med = np.nanmedian(mag[i-size:i+size])
+        
+        std = np.std(mag[i-size:i+size])
+        
+        #print('median:', str(med))
+        
+        if ((obs < med + n*std) and (obs > med - n*std)):
+            time_new = np.append(time_new, time[i])
+            mag_new = np.append(mag_new, mag[i])
+            mag_err_new = np.append(mag_err_new, mag_err[i])
+        
+        else:
+            clipped_count +=1 
+
+    time_new = np.append(time_new, time[-1*size:])
+    mag_new = np.append(mag_new, mag[-1*size:])
+    mag_err_new = np.append(mag_err_new, mag_err[-1*size:])
+
+    #print('points removed:', str(clipped_count))
+
+    tb_new = Table()
+    tb_new['mag'] = mag_new
+    tb_new['mag_err'] = mag_err_new
+
+    ts_new = TimeSeries(tb_new, time=Time(time_new, format='decimalyear'))
+    return ts_new
 def import_manga(i, j, k): 
     """Import MaNGA data: MNSA, MaNGA-WISE-variables, Pipe3D
 

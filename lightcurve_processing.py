@@ -6,11 +6,13 @@ from astropy.io import fits
 from astropy.table import Table
 from astropy.time import Time
 from astropy.timeseries import TimeSeries, aggregate_downsample
+import astropy.units as u
 
 from scipy.optimize import minimize
 
 from sklearn.gaussian_process import kernels, GaussianProcessRegressor
-
+from sklearn.model_selection import LeaveOneOut
+from sklearn.model_selection import cross_val_score
 ###################################################################################################################################################
 
 def nsigma_clipping(ts, n):
@@ -35,7 +37,7 @@ def nsigma_clipping(ts, n):
 
 
 
-def local_nsigma_clipping(ts, n, size=5):
+def local_nsigma_clipping(ts, n, size=5, verbose=False):
     """perform n-sigma clipping on points using the median of local values to remove points that lie outside n standard deviations from the median
 
     Parameters
@@ -90,8 +92,9 @@ def local_nsigma_clipping(ts, n, size=5):
     time_new = np.append(time_new, time[-1*size:])
     mag_new = np.append(mag_new, mag[-1*size:])
     mag_err_new = np.append(mag_err_new, mag_err[-1*size:])
-
-    #print('points removed:', str(clipped_count))
+    
+    if verbose==True:
+        print('points removed:', str(clipped_count))
 
     tb_new = Table()
     tb_new['mag'] = mag_new
@@ -102,7 +105,7 @@ def local_nsigma_clipping(ts, n, size=5):
 
 
 
-def GP(ts_in, kernel_num):
+def GP(ts_in, kernel_num, lengthscale):
     """perform gaussian process regression on input timeseries
     Parameters
     ----------
@@ -124,33 +127,34 @@ def GP(ts_in, kernel_num):
     y_err = ts_in['mag_err']
 
     # Define range of input space to predict over
-    x_min = x_in.min() - 0.35
-    x_max = x_in.max() + 0.35
+    x_min = x_in.min() 
+    x_max = x_in.max() 
     
     # Mesh the input space for evaluations of the real function, the prediction and
     # its MSE
-    x_space = np.atleast_2d(np.linspace(x_min, x_max, 100)).T
+    x_space = np.atleast_2d(np.linspace(x_min, x_max, 150)).T
     x_fit = np.atleast_2d(x_in).T
     
-    k_RBF = kernels.RBF(length_scale=1e2, length_scale_bounds=(1e-2, 5e3))
-    k_exp = (kernels.Matern(length_scale=1e2, length_scale_bounds=(1e-2, 5e3), nu=0.5))
-    k_sine = kernels.ExpSineSquared(length_scale=1e2, length_scale_bounds=(1e-2, 5e3), periodicity=1e1, periodicity_bounds=(1e-2, 1e4))
-    k_noise = kernels.WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-5, 1e5))
-    k_matern = (kernels.Matern(length_scale=1e2, length_scale_bounds=(1e-2, 5e3), nu=1.5))
+    l = (lengthscale[1]-lengthscale[0])/2
+    k_RBF = kernels.RBF(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]))
+    k_exp = (kernels.Matern(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), nu=0.5))
+    k_sine = kernels.ExpSineSquared(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), periodicity=1e1, periodicity_bounds=(1e-2, 1e4))
+    k_noise = kernels.WhiteKernel(noise_level=l, noise_level_bounds=(lengthscale[0], lengthscale[1]))
+    k_matern = (kernels.Matern(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), nu=1.5))
     # Matern kernel with nu = 0.5 is equivalent to the exponential kernel
     # Define kernel function
     if kernel_num == 0:
-        kernel = 1.0 * k_exp + k_noise #+ k_RBF + 1.0*(k_exp*k_sine)
+        kernel = 1.0 * k_exp #+ k_noise #+ k_RBF + 1.0*(k_exp*k_sine)
     if kernel_num == 1:
-        kernel = 1.0 * k_matern + k_noise
+        kernel = 1.0 * k_matern #+ k_noise #NOT GOOD, BLOWS UP A LOT
     if kernel_num == 2:
-        kernel = 1.0 * k_sine + k_noise
+        kernel = 1.0 * k_sine #+ k_noise
     if kernel_num == 3:
-        kernel = 1.0 * k_exp * 1.0 * k_matern + k_noise
+        kernel = 1 * k_RBF
     if kernel_num == 4:
-        kernel = 1.0 * k_RBF + k_noise 
+        kernel = (1.0 * k_matern + 1.0 * k_exp ) * 1.0 * k_RBF 
     if kernel_num == 5:
-        kernel = 1.0 * k_exp + 1.0 * k_matern + k_noise
+        kernel =  1.0 * k_matern + 1.0 * k_exp #+ k_noise
         
     
     gpr = GaussianProcessRegressor(kernel=kernel, alpha=y_err**2, n_restarts_optimizer=10, normalize_y=True, random_state=1)
@@ -165,6 +169,13 @@ def GP(ts_in, kernel_num):
     log_likelihood = gpr.log_marginal_likelihood()
     hyper_params = gpr.kernel_
     
+    # ts_avg = aggregate_downsample(ts_in, time_bin_size = 30 * u.day, n_bins=400, aggregate_func=np.nanmean)
+    # ts_avg = ts_avg[~ts_avg['mag'].mask]
+    # ts_avg['time'] = ts_avg['time_bin_start']
+
+    # cv = LeaveOneOut()
+    # scores = cross_val_score(gpr, ts_avg['time'].to_value('decimalyear').reshape(-1, 1), ts_avg['mag'], scoring='neg_mean_absolute_error',cv=cv, n_jobs=-1)
+    # RMSE = (np.sqrt(np.mean(np.absolute(scores))))
     # hyper_vector = []
     # hyper_vector.append(log_likelihood)
     # params = hyper_params.get_params()
@@ -174,7 +185,7 @@ def GP(ts_in, kernel_num):
     #         hyper_vector.append(params[key])
     
     #compile data into Timeseries
-
+    RMSE=0
     x_space = x_space.flatten()
     y_pred = y_pred.flatten()
     y_pred_sigma = y_pred_sigma.flatten()
@@ -186,7 +197,7 @@ def GP(ts_in, kernel_num):
 
     ts = TimeSeries(tb, time=Time(x_space, format='decimalyear'))
 
-    return ts, log_likelihood
+    return ts, log_likelihood, hyper_params, RMSE
 
 
 def match_lightcurves(ts1, ts2):

@@ -274,3 +274,104 @@ def match_lightcurves(ts1, ts2):
     const = minimize(minimize_func, x0=0).x
 
     return const
+
+def make_polynomial(ts, fit):
+    """make an array containing the y values of a polynomial function using the coefficients provided
+    ----------
+
+    ts : astropy.Timeseries Object
+        light curve timeseries that contains the x values (time)
+
+    fit: np.array
+        contains the coefficients of the polynomial of the form f(x) = a*x^n + b*x^(n-1) + ... + const.   
+    Returns
+    -------
+    fitted_poly : np.array
+        array containing y values of the polynomial f(x)
+    """
+    fitted_poly = np.zeros(ts['time'].to_value('decimalyear').shape[0])
+    for i in range(fit.shape[0]):
+        fitted_poly+= fit[::-1][i] * ts['time'].to_value('decimalyear') ** (i)
+
+    return fitted_poly
+
+def polyfit_lightcurves(ts, deg):
+    """fit a polynomial of degree deg to a lightcurve and subtract the polynomial to obtain the residuals of the fit
+    ----------
+
+    ts : astropy.Timeseries Object
+        light curve to which the polynomial will be fit
+
+    deg : np.int32
+        degree of the polynomial
+  
+    Returns
+    -------
+    new_ts : astropy.Timeseries Object
+        timeseries containing the magnitude values after the fitted polynomial has been subtracted
+    
+    fit : np.array
+        array containing the coefficients of the polynomial of the form f(x) = a*x^n + b*x^(n-1) + ... + const.  
+
+    fitted_poly : np.array
+        array containing y values of the polynomial f(x)
+    """   
+    fit = np.polyfit(ts['time'].to_value('decimalyear'), ts['mag'], deg=deg)
+
+    fitted_poly = make_polynomial(ts, fit)
+
+    new_ts = Table()
+    new_ts['mag'] = ts['mag'] - fitted_poly
+    new_ts['mag_err'] = ts['mag_err']
+    new_ts = TimeSeries(new_ts, time=ts['time'])
+
+    return new_ts, fit, fitted_poly
+
+
+def average_mag_around_specific_times(ts1, ts2, size=5):
+    """find the closest x (time) value matches from ts1 in ts2 and average the magnitude around those x values
+    Parameters
+    ----------
+
+    ts1 : astropy.Timeseries Object
+        light curve that has more data points 
+
+    ts2 : astropy.Timeseries Object
+        light curve that has less data points   
+
+    size : np.int32
+        number of data points to use to take the average 
+    Returns
+    -------
+
+    t: astropy.Timeseries Object
+        timeseries containing the averaged magnitude values around the closest matches of time values from ts1 in ts2
+    """
+    t1 = ts1['time'].to_value('decimalyear')
+    t2 = ts2['time'].to_value('decimalyear')
+
+    inds = np.abs(t1[:, None] - t2[None, :]).argmin(axis=-1)
+    #print(inds.shape)
+    #print(inds)
+    times = np.array([])
+    avg = np.array([])
+    avg_err = np.array([])
+
+    for i in inds:
+        times = np.append(times, ts2['time'][i].to_value('decimalyear'))
+        if (i > size) and (i < ts2['mag'].shape[0] - size):
+            avg = np.append(avg, np.nanmean(ts2['mag'][i-size:i+size]))
+            avg_err = np.append(avg_err, np.nanmean(ts2['mag_err'][i-size:i+size])/np.sqrt(ts2['mag_err'][i-size:i+size].shape[0]))
+        else:
+            #print(ts2['mag'][i])
+            avg = np.append(avg, ts2['mag'][i])
+            avg_err = np.append(avg_err, ts2['mag_err'][i])
+
+    t = Table()
+    t['mag'] = avg
+    t['mag_err'] = avg_err
+    t = TimeSeries(t, time=Time(times, format='decimalyear'))
+    return t
+
+
+

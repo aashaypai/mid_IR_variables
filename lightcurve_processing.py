@@ -2,7 +2,7 @@ import numpy as np
 
 from astropy.io import fits
 
-
+import astropy
 from astropy.table import Table
 from astropy.time import Time
 from astropy.timeseries import TimeSeries, aggregate_downsample
@@ -13,6 +13,11 @@ from scipy.optimize import minimize
 from sklearn.gaussian_process import kernels, GaussianProcessRegressor
 from sklearn.model_selection import LeaveOneOut
 from sklearn.model_selection import cross_val_score
+
+from mid_IR_variables import fileIO_processing as fp
+from mid_IR_variables import ZTF_lightcurve_processing as zlp
+
+IMPORT_FILEPATH ='C:/Users/paiaa/Documents/Research/Blanton Lab/Midir Variables/'
 ###################################################################################################################################################
 
 def nsigma_clipping(ts, n):
@@ -132,25 +137,25 @@ def GP(ts_in, kernel_num, lengthscale):
     
     # Mesh the input space for evaluations of the real function, the prediction and
     # its MSE
-    x_space = np.atleast_2d(np.linspace(x_min, x_max, 150)).T
+    x_space = np.atleast_2d(np.linspace(x_min, x_max, 5 * x_in.shape[0])).T
     x_fit = np.atleast_2d(x_in).T
     
     l = (lengthscale[1]-lengthscale[0])/2
     k_RBF = kernels.RBF(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]))
     k_exp = (kernels.Matern(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), nu=0.5))
     k_sine = kernels.ExpSineSquared(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), periodicity=1e1, periodicity_bounds=(1e-2, 1e4))
-    k_noise = kernels.WhiteKernel(noise_level=l, noise_level_bounds=(lengthscale[0], lengthscale[1]))
+    k_noise = kernels.WhiteKernel(noise_level=l, noise_level_bounds=(0.01, 0.5))
     k_matern = (kernels.Matern(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), nu=1.5))
     # Matern kernel with nu = 0.5 is equivalent to the exponential kernel
     # Define kernel function
     if kernel_num == 0:
-        kernel = 1.0 * k_exp #+ k_noise #+ k_RBF + 1.0*(k_exp*k_sine)
+        kernel = 1.0 * k_exp + k_noise#+ k_noise #+ k_RBF + 1.0*(k_exp*k_sine)
     if kernel_num == 1:
         kernel = 1.0 * k_matern #+ k_noise #NOT GOOD, BLOWS UP A LOT
     if kernel_num == 2:
         kernel = 1.0 * k_sine #+ k_noise
     if kernel_num == 3:
-        kernel = 1 * k_RBF
+        kernel = 1.0 * k_RBF + k_noise
     if kernel_num == 4:
         kernel = (1.0 * k_matern + 1.0 * k_exp ) * 1.0 * k_RBF 
     if kernel_num == 5:
@@ -163,8 +168,9 @@ def GP(ts_in, kernel_num, lengthscale):
     gpr.fit(x_fit, y_in)
 
     # Make the prediction on the meshed x-axis (ask for MSE as well)
-    y_pred, y_pred_sigma = gpr.predict(x_space, return_std=True)
-    
+    y_pred, y_pred_cov = gpr.predict(x_space, return_cov=True)
+
+    y_pred_sigma = np.sqrt(np.diag(y_pred_cov))
     # Get log likelihood and hyperparameters
     log_likelihood = gpr.log_marginal_likelihood()
     hyper_params = gpr.kernel_
@@ -197,7 +203,7 @@ def GP(ts_in, kernel_num, lengthscale):
 
     ts = TimeSeries(tb, time=Time(x_space, format='decimalyear'))
 
-    return ts, log_likelihood, hyper_params, RMSE
+    return ts, log_likelihood, hyper_params, y_pred_cov
 
 
 def match_lightcurves(ts1, ts2):
@@ -374,4 +380,67 @@ def average_mag_around_specific_times(ts1, ts2, size=5):
     return t
 
 
+def generate_combined_lightcurve(pifu):
+
+    crts1 = TimeSeries.read(IMPORT_FILEPATH + '/Lightcurves/CRTS/' + 'crts1.csv', format='csv', time_column='MJD', time_format='mjd')
+    crts2 = TimeSeries.read(IMPORT_FILEPATH + '/Lightcurves/CRTS/' + 'crts2.csv', format='csv', time_column='MJD', time_format='mjd')
+    crts = astropy.table.vstack([crts1, crts2])
+
+    ptf = TimeSeries.read(IMPORT_FILEPATH + '/Lightcurves/PTF/' + 'PTF_midir_variables.csv', format='csv', time_column='obsmjd', time_format='mjd')
+    #asassn = TimeSeries.read(IMPORT_FILEPATH + '/Lightcurves/ASAS-SN/' + asassn_name, format='csv', time_column='HJD', time_format='jd')
+
+    ztf = Table.read(IMPORT_FILEPATH + '/Lightcurves/ZTF/' + 'ztf_lc_key.tbl', format='ascii.ipac')
+    ztf_lc = fits.open(IMPORT_FILEPATH + '/Lightcurves/ZTF/' + 'lc.fits')[1].data
+
+    crts_obj = crts[crts['InputID'] == pifu]
+    ptf_obj = ptf[ptf['plateifu_01'] == pifu]
+    asassn_obj = TimeSeries.read(IMPORT_FILEPATH + '/Lightcurves/ASAS-SN/' + pifu +'.csv', format='ascii', time_column='JD', time_format='jd')
+
+    ztf_oid = zlp.find_oid(pifu, ztf)
+    ztf_obj = zlp.find_lightcurve(ztf_oid, ztf_lc)
+
+
+
+    crts_obj_p = fp.process_crts(crts_obj, clip=2)
+    ptf_obj_p = fp.process_ptf(ptf_obj, 2, clip=2)
+    asassn_obj_p = fp.process_asassn(asassn_obj, 'V', clip=2)
+    ztf_obj_p = fp.process_ztf(ztf_obj, filter='zg', clip=2)
+
+
+    if crts_obj_p['mag'].shape[0] > 0:
+        crts_a, crts_b, crts_c, crts_d = fp.bin_data(crts_obj_p, freq=20, bins=200)
+        crts_b = crts_b[~crts_b['mag'].mask]
+        crts_b['time'] = crts_b['time_bin_start']
+
+    if asassn_obj_p['mag'].shape[0] > 0:    
+        asassn_a, asassn_b, asassn_c, asassn_d = fp.bin_data(asassn_obj_p, freq=20, bins=200)
+        asassn_b = asassn_b[~asassn_b['mag'].mask]
+        asassn_b['time'] = asassn_b['time_bin_start']
+
+        if crts_b['mag'].shape[0] > 0 and asassn_b['mag'].shape[0] > 0:
+            const1 = match_lightcurves(crts_b, asassn_b)
+        else:
+            const1=0        
+    
+        asassn_b['mag'] += const1
+
+    if ztf_obj_p['mag'].shape[0] > 0:
+        ztf_a, ztf_b, ztf_c, ztf_d = fp.bin_data(ztf_obj_p, freq=20, bins=150)
+        ztf_b = ztf_b[~ztf_b['mag'].mask]
+        ztf_b['time'] = ztf_b['time_bin_start']
+
+
+        if asassn_b['mag'].shape[0] > 0 and ztf_b['mag'].shape[0] > 0:
+            const2 = match_lightcurves(asassn_b, ztf_b)
+        else:
+            const2=0
+
+    asassn_obj_p['mag'] += const1
+    ztf_obj_p['mag'] += const2
+
+    combined_obj = astropy.table.vstack([crts_obj_p, asassn_obj_p, ztf_obj_p])
+    combined_obj.sort(['time'])
+    combined_obj_p = local_nsigma_clipping(combined_obj, 2)
+
+    return combined_obj_p
 

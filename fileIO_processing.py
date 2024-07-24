@@ -188,7 +188,7 @@ def import_lightcurves(crts_name, asassn_name, ztf_name, ptf_name):
     return crts, asassn, ztf, ptf
 
 
-def process_wise(plateifu, lc):
+def process_wise(plateifu, lc, band=2):
     """process WISE lightcurve data
 
     Parameters
@@ -208,10 +208,15 @@ def process_wise(plateifu, lc):
     lc = lc[lc['plateifu'] == plateifu]
 
     tb = Table()
-    
-    tb['mag'] = lc['mean_W2_per_epoch'][0]
-    tb['mag_err'] = lc['err_W2_per_epoch'][0]
 
+    if band == 2:
+        tb['mag'] = lc['mean_W2_per_epoch'][0]
+        tb['mag_err'] = lc['err_W2_per_epoch'][0]
+    
+    elif band == 1:
+        tb['mag'] = lc['mean_W1_per_epoch'][0]
+        tb['mag_err'] = lc['err_W1_per_epoch'][0]
+        
     ts = TimeSeries(tb, time=Time(lc['mjd'][0], format='mjd'))
     
     mask = (np.isfinite(ts['mag']))

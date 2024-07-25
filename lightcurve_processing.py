@@ -144,7 +144,7 @@ def GP(ts_in, kernel_num, lengthscale):
     k_RBF = kernels.RBF(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]))
     k_exp = (kernels.Matern(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), nu=0.5))
     k_sine = kernels.ExpSineSquared(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), periodicity=1e1, periodicity_bounds=(1e-2, 1e4))
-    k_noise = kernels.WhiteKernel(noise_level=l, noise_level_bounds=(0.01, 0.5))
+    k_noise = kernels.WhiteKernel(noise_level=l, noise_level_bounds=(0.01, 1))
     k_matern = (kernels.Matern(length_scale=l, length_scale_bounds=(lengthscale[0], lengthscale[1]), nu=1.5))
     # Matern kernel with nu = 0.5 is equivalent to the exponential kernel
     # Define kernel function

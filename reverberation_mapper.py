@@ -10,7 +10,7 @@ from mid_IR_variables import fileIO_processing as fp
 from mid_IR_variables import lightcurve_processing as lp
 
 from scipy import optimize
-
+from scipy.stats import pearsonr
 
 SAVE_FILEPATH = 'C:/Users/paiaa/Documents/Research/Blanton Lab/Midir Variables/Figures/'
 IMPORT_FILEPATH ='C:/Users/paiaa/Documents/Research/Blanton Lab/Midir Variables/'
@@ -25,6 +25,7 @@ class reverberation_mapper:
         self.verbose = False
         self.plateifu = plateifu
         self.wise_band = None
+        self.variable_kern_width = False
 
         if optical_data == None:
 
@@ -73,8 +74,8 @@ class reverberation_mapper:
             self.m_w2 = self.w2['mag']
             self.err_w2 = self.w2['mag_err']
 
-        self.preds_w1, self.chisq_w1 = [], []
-        self.preds_w2, self.chisq_w2 = [], []
+        self.preds_w1, self.chisq_w1, self.model1, self.const1 = [], [], [], []
+        self.preds_w2, self.chisq_w2, self.model2, self.const2 = [], [], [], []
 
     def generate_wise_lightcurve(self):
 
@@ -110,39 +111,60 @@ class reverberation_mapper:
 
     def convolve(self, lag):
 
-        kern_width = int(np.round(2*lag/np.nanmean(np.diff(self.t_opt)), 0))
+        kern_width = int(np.round(0.5*lag/np.nanmean(np.diff(self.t_opt)), 0))
         #print(kern_width)
         kern = self.hat(kern_width)
 
         conv = np.convolve(kern, self.m_opt, mode='valid')
         t_conv = self.t_opt[(kern_width-1)//2:-(kern_width-1)//2]
+        err_conv = self.err_opt[(kern_width-1)//2:-(kern_width-1)//2]
+        return conv, t_conv, err_conv
+    
+    def fit_const(self, model, IR_data):
 
-        return conv, t_conv
-            
+        def offset(c):
+            model_new = model + c
+
+            difference = model_new - IR_data
+            return difference
+        
+        const = optimize.leastsq(offset, x0=[-50])
+
+        return const
+    
     def predict_mags(self, params):
         
-        lag, amp, const = params[0], params[1], params[2]
+        lag, amp = params[0], params[1]
         if self.wise_band == 1:
             IR_data = self.w1
         if self.wise_band == 2:
             IR_data = self.w2
 
-        if self.verbose == True: #verbose option
-            print(lag, amp, const)
-
-        conv, t_conv = self.convolve(lag)
+        conv, t_conv, err_conv = self.convolve(lag)
 
         inds = np.abs(IR_data['time'].to_value('decimalyear')[:, None] - (t_conv[None, :]+lag)).argmin(axis=-1)
         #print(inds)
-        model = amp * conv + const
+        model = amp * conv
+
+        
+        const = self.fit_const(model[inds], IR_data['mag'])[0]
+
+        model += const
+
+        if self.verbose == True: #verbose option
+            print(lag, amp, const)
 
         predicted_mags = model[inds]
         predicted_errs = self.err_opt[inds]
 
         if self.wise_band == 1:
             self.preds_w1.append(predicted_mags)
+            self.model1.append(model)
+            self.const1.append(const)
         if self.wise_band == 2:
             self.preds_w2.append(predicted_mags)
+            self.model2.append(model)
+            self.const2.append(const)
 
         return predicted_mags, predicted_errs
 
@@ -181,9 +203,9 @@ class reverberation_mapper:
             print(kwargs)
             
         if self.wise_band == 1:
-            self.preds_w1, self.chisq_w1 = [], []
+            self.preds_w1, self.chisq_w1, self.model1, self.const1 = [], [], [], []
         if self.wise_band == 2:
-            self.preds_w2, self.chisq_w2 = [], []
+            self.preds_w2, self.chisq_w2, self.model2, self.const2 = [], [], [], []
 
         if m == 'brute':
             model = optimize.brute(self.chisq, ranges=ranges, full_output=True, finish=None, disp=True)
@@ -193,9 +215,9 @@ class reverberation_mapper:
             model = optimize.basinhopping(self.chisq, x0=x0, stepsize=stepsize, niter=niter, T=T,minimizer_kwargs=minimizer_kwargs, callback=print_fun)
 
         if m == 'dualannealing':
-            
             def print_fun(x, f, accepted):
                 print("at minimum", str(x),  "with chisq:", str(f), "accepted:", int(accepted))
+
             #minimizer_kwargs = { "method": "L-BFGS-B","bounds": ranges}
             model = optimize.dual_annealing(self.chisq, bounds=ranges, callback=print_fun)
 
@@ -205,3 +227,32 @@ class reverberation_mapper:
         return model
 
 
+def ccf(optical_data, IR_data, wise_band):
+    
+    if wise_band == 1:
+        m_accretion_disk = optical_data['mag'] * (0.16)**(1/3) ##Lyu 2019 paper, (nu_IR/nu_OPT)^(1/3) for W1
+
+    if wise_band == 2:
+        m_accretion_disk = optical_data['mag'] * (0.12)**(1/3) ##Lyu 2019 paper, (nu_IR/nu_OPT)^(1/3) for W2
+
+    inds = np.abs(IR_data['time'].to_value('decimalyear')[:, None] - (optical_data['time'].to_value('decimalyear')[None, :])).argmin(axis=-1)
+    ind_min = inds[0]
+    #print(inds)
+    i = 0
+
+    delta_t = np.mean(np.diff(optical_data['time'].to_value('decimalyear')))
+    #print(delta_t)
+    ccf = np.array([])
+    time_lag = np.array([])
+
+    IR_mags_norm, opt_mags_norm = IR_data['mag']-np.nanmean(IR_data['mag']), optical_data['mag']-np.nanmean(optical_data['mag'])
+    while ind_min > 0:
+        pearson_coeff= pearsonr(IR_mags_norm, opt_mags_norm[inds-i])[0]
+        ccf = np.append(ccf, pearson_coeff)
+        #print(pearson_coeff)
+        lag = i * delta_t
+        time_lag = np.append(time_lag, lag)
+        
+        ind_min = (inds-i)[0]
+        i+=1
+    return ccf, time_lag

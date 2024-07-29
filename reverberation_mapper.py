@@ -208,7 +208,7 @@ class reverberation_mapper:
             self.preds_w2, self.chisq_w2, self.model2, self.const2 = [], [], [], []
 
         if m == 'brute':
-            model = optimize.brute(self.chisq, ranges=ranges, full_output=True, finish=None, disp=True)
+            model = optimize.brute(self.chisq, ranges=ranges, full_output=True, finish=optimize.minimize, disp=True)
 
         if m == 'basinhopping':
             minimizer_kwargs = { "method": "L-BFGS-B","bounds": ranges}
@@ -237,7 +237,7 @@ def ccf(optical_data, IR_data, wise_band):
 
     inds = np.abs(IR_data['time'].to_value('decimalyear')[:, None] - (optical_data['time'].to_value('decimalyear')[None, :])).argmin(axis=-1)
     ind_min = inds[0]
-    #print(inds)
+    print(inds)
     i = 0
 
     delta_t = np.mean(np.diff(optical_data['time'].to_value('decimalyear')))

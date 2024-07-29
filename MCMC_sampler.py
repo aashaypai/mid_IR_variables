@@ -66,7 +66,7 @@ class MCMC:
 
         lag, amp, const = model_params[0], model_params[1], model_params[2]
 
-        if (0.04<lag<1 and 0.1<amp<20  and -100<const<0):
+        if (self.ranges[0][0]<lag<self.ranges[0][1] and self.ranges[1][0]<amp<self.ranges[1][1]  and self.ranges[2][0]<const<self.ranges[2][1]):
             return 0.
         else:
             return -np.inf
@@ -95,6 +95,7 @@ class MCMC:
         self.nwalkers = kwargs.get("nwalkers", 100)
         self.ndim = kwargs.get("ndim", 3)
         self.niter = kwargs.get("niter", 500)
+        self.ranges = kwargs.get("ranges", ((0.04, 1), (0.1, 20), (-100, 0)))
 
         default_p0 = [np.array(self.initial[1:]) + 1e-1 * np.random.randn(2) for i in range(self.nwalkers)]
         default_p0 = np.insert(default_p0, 0, np.random.normal(loc=0.5, scale=0.15,size=len(default_p0)), axis=1)
@@ -144,6 +145,7 @@ class MCMC:
     
         ax.set_ylabel('mag')
         ax.set_xlabel('date')
+        ax.invert_yaxis()
         
 
     def set_optical_data(self, optical_data):

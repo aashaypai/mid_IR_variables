@@ -407,33 +407,42 @@ def generate_combined_lightcurve(pifu):
     ztf_obj_p = fp.process_ztf(ztf_obj, filter='zg', clip=2)
 
 
-    if crts_obj_p['mag'].shape[0] > 0:
+
+    if np.size(crts_obj_p)> 0:
         crts_a, crts_b, crts_c, crts_d = fp.bin_data(crts_obj_p, freq=20, bins=200)
         crts_b = crts_b[~crts_b['mag'].mask]
         crts_b['time'] = crts_b['time_bin_start']
+    else:
+        crts_b = np.array([])
 
-    if asassn_obj_p['mag'].shape[0] > 0:    
+    if np.size(asassn_obj_p)> 0:    
         asassn_a, asassn_b, asassn_c, asassn_d = fp.bin_data(asassn_obj_p, freq=20, bins=200)
         asassn_b = asassn_b[~asassn_b['mag'].mask]
         asassn_b['time'] = asassn_b['time_bin_start']
-
-        if crts_b['mag'].shape[0] > 0 and asassn_b['mag'].shape[0] > 0:
+    
+        if np.size(crts_b)> 0 and np.size(asassn_b) > 0:
             const1 = match_lightcurves(crts_b, asassn_b)
         else:
             const1=0        
     
         asassn_b['mag'] += const1
+    
+    else:
+        asassn_b = np.array([])
 
-    if ztf_obj_p['mag'].shape[0] > 0:
+
+    if np.size(ztf_obj_p) > 0:
         ztf_a, ztf_b, ztf_c, ztf_d = fp.bin_data(ztf_obj_p, freq=20, bins=150)
         ztf_b = ztf_b[~ztf_b['mag'].mask]
         ztf_b['time'] = ztf_b['time_bin_start']
+    
 
-
-        if asassn_b['mag'].shape[0] > 0 and ztf_b['mag'].shape[0] > 0:
+        if np.size(asassn_b) > 0 and np.size(ztf_b) > 0:
             const2 = match_lightcurves(asassn_b, ztf_b)
         else:
             const2=0
+    else:
+        ztf_b = np.array([])
 
     asassn_obj_p['mag'] += const1
     ztf_obj_p['mag'] += const2

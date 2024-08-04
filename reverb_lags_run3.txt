@@ -1,3 +1,11 @@
+\9487-9102: rerun MCMC between (-1.5, 1) years
+\8553-1901: rerun MCMC between (0, 1) years
+\7981-9102: rerun MCMC between (0, 1.5) years
+\8326-6102: rerun MCMC between (0, 1.5) years
+\8714-3704: rerun MCMC between (0, 2) years -- might not be required
+\8091-9101: rerun MCMC between (0, 3) years -- no detected lag NOT USED
+\12511-3702: rerun MCMC between (0, 3) years
+\8619-12702: rerun MCMC between (0, 3.5) years
 |   plateifu|            lag_w1|            amp_w1|          const_w1|            lag_w2|             amp_w2|          const_w2|   lag_w1_yerr_min|   lag_w1_yerr_max|   lag_w2_yerr_min|   lag_w2_yerr_max|
 |       char|            double|            double|            double|            double|             double|            double|            double|            double|            double|            double|
 |           |                  |                  |                  |                  |                   |                  |                  |                  |                  |                  |

@@ -27,21 +27,27 @@ class MCMC:
 
     def convolve(self, lag):
 
-        kern_width = int(np.round(0.5*lag/np.nanmean(np.diff(self.t_opt)), 0))
+        kern_width = int(np.round(self.width*np.abs(lag)/np.nanmean(np.diff(self.t_opt)), 0))
         #print(kern_width)
         kern = self.hat(kern_width)
 
-        conv = np.convolve(kern, self.m_opt, mode='valid')
+        conv = np.convolve(kern, (self.m_opt-np.nanmedian(self.m_opt)), mode='valid')
         t_conv = self.t_opt[(kern_width-1)//2:-(kern_width-1)//2]
         err_conv = self.err_opt[(kern_width-1)//2:-(kern_width-1)//2]
         return conv, t_conv, err_conv
         
     def model(self, model_params):
         #print(model_params[0])
-        c, t_c, err_c = self.convolve(model_params[0])
-        m = model_params[1] * c + model_params[2]
 
-        inds = np.abs(self.t_wise[:, None] - (t_c[None, :]+model_params[0])).argmin(axis=-1)
+        if (-0.01<model_params[0]<0.01): #-0.02<=model_params[0]<=0.02
+            #print('no convolution')
+            c, t_c, err_c = (self.m_opt-np.nanmedian(self.m_opt)), self.t_opt, self.err_opt
+            inds = np.abs(self.t_wise[:, None] - (t_c[None, :])).argmin(axis=-1)
+        else:
+            c, t_c, err_c = self.convolve(model_params[0])
+            inds = np.abs(self.t_wise[:, None] - (t_c[None, :]+model_params[0])).argmin(axis=-1)
+
+        m = model_params[1] * c + model_params[2]
 
         mags = m[inds]
         errs = err_c[inds]
@@ -91,6 +97,8 @@ class MCMC:
         return sampler, pos, prob, state
     
     def run_MCMC(self, kwargs):
+
+        self.width = kwargs.get("width", 0.5)
         self.initial = kwargs.get("initial")
         self.nwalkers = kwargs.get("nwalkers", 100)
         self.ndim = kwargs.get("ndim", 3)
@@ -137,7 +145,7 @@ class MCMC:
         for theta in samples[np.random.randint(len(samples), size=num)]:
 
             #print(theta)
-            if theta[0]<0:
+            if -0.02<=theta[0]<=0.02:
                 continue
             conv, t_conv, conv_err = self.convolve(theta[0])
 
@@ -147,7 +155,7 @@ class MCMC:
         ax.set_xlabel('date')
         ax.invert_yaxis()
         
-
+    ########################GETTERS and SETTERS########################
     def set_optical_data(self, optical_data):
         self.t_opt = optical_data['time'].to_value('decimalyear')
         self.m_opt = optical_data['mag']
@@ -158,4 +166,35 @@ class MCMC:
         self.m_wise = IR_data['mag']
         self.err_wise = IR_data['mag_err']
 
+    def get_nwalkers(self):
+        return self.nwalkers
     
+    def set_nwalkers(self, nw):
+        self.nwalkers = nw
+
+    def get_niter(self):
+        return self.niter
+    
+    def set_niter(self, ni):
+        self.niter = ni
+
+    def get_initial(self):
+        return self.initial
+    
+    def set_initial(self, init):
+        self.initial = init
+    
+    def get_ranges(self):
+        return self.ranges
+    
+    def set_ranges(self, r):
+        self.ranges = r
+
+    def get_p0(self):
+        return self.p0
+    
+    def set_p0(self, p0):
+        self.p0 = p0
+    
+    def set_width(self, width):
+        self.width = width

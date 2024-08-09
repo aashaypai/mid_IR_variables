@@ -137,7 +137,7 @@ def GP(ts_in, kernel_num, lengthscale):
     
     # Mesh the input space for evaluations of the real function, the prediction and
     # its MSE
-    x_space = np.atleast_2d(np.linspace(x_min, x_max, 5 * x_in.shape[0])).T
+    x_space = np.atleast_2d(np.linspace(x_min, x_max, 10000)).T #5 * x_in.shape[0]
     x_fit = np.atleast_2d(x_in).T
     
     l = (lengthscale[1]-lengthscale[0])/2
@@ -412,30 +412,33 @@ def generate_combined_lightcurve(pifu):
         crts_a, crts_b, crts_c, crts_d = fp.bin_data(crts_obj_p, freq=20, bins=200)
         crts_b = crts_b[~crts_b['mag'].mask]
         crts_b['time'] = crts_b['time_bin_start']
+        crts_final_date = crts_obj_p['time'][-1]
     else:
         crts_b = np.array([])
+        crts_final_date = Time(0, format='decimalyear')
 
     if np.size(asassn_obj_p)> 0:    
         asassn_a, asassn_b, asassn_c, asassn_d = fp.bin_data(asassn_obj_p, freq=20, bins=200)
         asassn_b = asassn_b[~asassn_b['mag'].mask]
         asassn_b['time'] = asassn_b['time_bin_start']
-    
+        asassn_final_date = asassn_obj_p['time'][-1]
         if np.size(crts_b)> 0 and np.size(asassn_b) > 0:
             const1 = match_lightcurves(crts_b, asassn_b)
         else:
             const1=0        
+
     
         asassn_b['mag'] += const1
     
     else:
         asassn_b = np.array([])
-
+        asassn_final_date=Time(0, format='decimalyear')
 
     if np.size(ztf_obj_p) > 0:
         ztf_a, ztf_b, ztf_c, ztf_d = fp.bin_data(ztf_obj_p, freq=20, bins=150)
         ztf_b = ztf_b[~ztf_b['mag'].mask]
         ztf_b['time'] = ztf_b['time_bin_start']
-    
+        ztf_final_date=ztf_obj_p['time'][-1]
 
         if np.size(asassn_b) > 0 and np.size(ztf_b) > 0:
             const2 = match_lightcurves(asassn_b, ztf_b)
@@ -443,7 +446,8 @@ def generate_combined_lightcurve(pifu):
             const2=0
     else:
         ztf_b = np.array([])
-
+        ztf_final_date=Time(0, format='decimalyear')
+        
     asassn_obj_p['mag'] += const1
     ztf_obj_p['mag'] += const2
 
@@ -451,5 +455,12 @@ def generate_combined_lightcurve(pifu):
     combined_obj.sort(['time'])
     combined_obj_p = local_nsigma_clipping(combined_obj, 2)
 
-    return combined_obj_p
+    sizes=np.ones(3)
+    last_datapoint_time = (crts_final_date, asassn_final_date, ztf_final_date)
+
+    sizes[0] = (np.size(combined_obj_p[combined_obj_p['time']<=last_datapoint_time[0]]))
+    sizes[1] = (np.size(combined_obj_p[(last_datapoint_time[0]<combined_obj_p['time']) & (combined_obj_p['time']<=last_datapoint_time[1])]))
+    sizes[2] = (np.size(combined_obj_p[(last_datapoint_time[1]<combined_obj_p['time']) & (combined_obj_p['time']<=last_datapoint_time[2])]))
+
+    return combined_obj_p, sizes
 
